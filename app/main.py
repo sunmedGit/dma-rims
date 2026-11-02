@@ -170,8 +170,11 @@ def get_registration(
 def update_registration(
     registration_id: int,
     payload: ChangeRequest,
-    store: Store = Depends(get_store),
+    # `user` is declared before `store` deliberately: FastAPI resolves
+    # dependencies in parameter order, and a caller who may not edit must be
+    # refused whether or not the database is reachable.
     user: User = Depends(require_editor),
+    store: Store = Depends(get_store),
 ) -> Dict[str, Any]:
     existing = store.get_registration(registration_id)
     if existing is None:
@@ -232,8 +235,8 @@ def list_gtins(
 @app.post("/api/holds", status_code=201)
 def apply_hold(
     payload: HoldRequest,
-    store: Store = Depends(get_store),
     user: User = Depends(require_editor),
+    store: Store = Depends(get_store),
 ) -> Dict[str, Any]:
     reason = audit.check_reason(payload.reason)
     record = audit.record_for_insert(
@@ -254,8 +257,8 @@ def apply_hold(
 def lift_hold(
     hold_id: int,
     payload: LiftRequest,
-    store: Store = Depends(get_store),
     user: User = Depends(require_editor),
+    store: Store = Depends(get_store),
 ) -> Dict[str, Any]:
     reason = audit.check_reason(payload.reason)
     record = audit.record_for_update_single(

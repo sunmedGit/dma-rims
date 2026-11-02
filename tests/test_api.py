@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import main
@@ -325,3 +326,52 @@ def test_a_hold_without_a_reason_is_refused(client, store):
     )
     assert response.status_code == 422
     assert store.holds == {}
+
+
+# --------------------------------------------------------------------------
+# authorization must not depend on the database being reachable
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def client_without_database(client):
+    """The store dependency fails, as it does when Lakebase is unreachable."""
+
+    def unavailable():
+        raise HTTPException(status_code=503, detail="No database is configured.")
+
+    main.app.dependency_overrides[main.get_store] = unavailable
+    yield client
+
+
+def test_a_viewer_is_refused_even_when_the_database_is_down(client_without_database):
+    """403, not 503.
+
+    FastAPI resolves dependencies in parameter order, so declaring the store
+    before the user made an unreachable database mask the real answer: that
+    this caller may not write at all. A viewer must be told no regardless of
+    infrastructure state.
+    """
+    response = client_without_database.patch(
+        "/api/registrations/1",
+        headers=as_viewer(),
+        json={"reason": "trying it on", "changes": {"comments": "edited"}},
+    )
+    assert response.status_code == 403
+
+
+def test_a_viewer_is_refused_a_hold_when_the_database_is_down(client_without_database):
+    response = client_without_database.post(
+        "/api/holds",
+        headers=as_viewer(),
+        json={"gtin": "00812457000934", "reason": "supplier CAPA open"},
+    )
+    assert response.status_code == 403
+
+
+def test_an_editor_still_gets_503_when_the_database_is_down(client_without_database):
+    response = client_without_database.patch(
+        "/api/registrations/1",
+        headers=as_editor(),
+        json={"reason": "renewal received", "changes": {"comments": "renewed"}},
+    )
+    assert response.status_code == 503
