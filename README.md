@@ -52,6 +52,34 @@ Upload a completed form:
 curl -X POST http://127.0.0.1:8000/api/intake/forms -F "file=@/path/to/form.xlsx"
 ```
 
+## Databricks SQL (cdw_prod.glb_bi)
+
+`sql/databricks/` is the current target: Delta tables and views in
+`cdw_prod.glb_bi`, prefixed `dma_`, on the Analyst Serverless warehouse. Run in
+order, by someone with rights on `cdw_prod`:
+
+```
+01_tables.sql → 02_views.sql → 03_export_snapshot.sql → 05_grants.sql
+```
+
+`04_nightly_job.sql` is not run once — schedule it as a SQL task with the job
+parameter `run_key = {{job.run_id}}`.
+
+Countries come from the existing `cm_country_codes`, so codes match GP.
+
+`verify.py` runs every view and job body against the real warehouse with the
+tables replaced by inline sample rows. It creates nothing and reads only
+`cm_country_codes`:
+
+```bash
+DATABRICKS_CONFIG_PROFILE=<profile> python sql/databricks/verify.py
+```
+
+Delta cannot enforce uniqueness, foreign keys, or insert-only access — see the
+header of `01_tables.sql`. The Postgres files in `sql/` are kept as the better
+schema if this moves to Lakebase. The application's store still targets
+Postgres and has not been ported.
+
 ## Nightly export
 
 `sql/views_integration.sql` is the contract for a scheduled job. Treat the
