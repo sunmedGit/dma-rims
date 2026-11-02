@@ -113,6 +113,39 @@ class Store(Protocol):
     ) -> Dict[str, Any]:
         ...
 
+    # --- request form intake --------------------------------------------
+    def find_country_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        ...
+
+    def create_request_form(
+        self, fields: Mapping[str, Any], actor: str, records: Sequence[AuditRecord]
+    ) -> Dict[str, Any]:
+        ...
+
+    def get_request_form(self, form_id: int) -> Optional[Dict[str, Any]]:
+        ...
+
+    def list_request_forms(self, state: Optional[str] = None, limit: int = 100
+                           ) -> List[Dict[str, Any]]:
+        ...
+
+    def accept_request_form(
+        self,
+        form_id: int,
+        registrations: Sequence[Mapping[str, Any]],
+        actor: str,
+        review_note: str,
+        records: Sequence[AuditRecord],
+    ) -> List[Dict[str, Any]]:
+        """Create the registrations and mark the form accepted, in one transaction."""
+        ...
+
+    def reject_request_form(
+        self, form_id: int, actor: str, review_note: str,
+        records: Sequence[AuditRecord],
+    ) -> Dict[str, Any]:
+        ...
+
     # --- audit -----------------------------------------------------------
     def write_audit(self, records: Sequence[AuditRecord]) -> None:
         ...

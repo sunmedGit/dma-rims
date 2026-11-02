@@ -10,15 +10,18 @@ one transaction.
 
 from __future__ import annotations
 
+import io
+import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
-from . import audit
+from . import audit, files
 from .config import Settings, load_settings
+from .intake.form_parser import FormParseError, parse_registration_request
 from .identity import (
     ChainResolver,
     DatabricksGroupResolver,
@@ -48,6 +51,16 @@ _store: Optional[Store] = None
 
 def get_settings() -> Settings:
     return _settings
+
+
+_file_store = None
+
+
+def get_file_store():
+    global _file_store
+    if _file_store is None:
+        _file_store = files.build_file_store(_settings.evidence_volume)
+    return _file_store
 
 
 def get_store() -> Store:
@@ -105,16 +118,34 @@ class LiftRequest(BaseModel):
     reason: str = Field(min_length=audit.MIN_REASON_CHARS)
 
 
+class LicenceGroupInput(BaseModel):
+    """A licence application the reviewer is confirming or correcting."""
+
+    note: str = ""
+    skus: List[str] = Field(default_factory=list)
+    description: str = ""
+
+
+class AcceptRequest(BaseModel):
+    reason: str = Field(min_length=audit.MIN_REASON_CHARS)
+    # Omitted means "use the grouping the parser found". Supplied means the
+    # reviewer has corrected it — which is the point of showing the warnings.
+    groups: Optional[List[LicenceGroupInput]] = None
+
+
 # ---------------------------------------------------------------------------
 # meta
 # ---------------------------------------------------------------------------
 
 @app.get("/api/health")
 def health(settings: Settings = Depends(get_settings)) -> Dict[str, Any]:
+    ephemeral = not settings.has_database and settings.dev_mode
     return {
         "status": "ok",
         "database_configured": settings.has_database,
-        "evidence_volume_configured": bool(settings.evidence_volume),
+        "evidence_volume_configured": settings.evidence_volume.startswith("/Volumes/"),
+        # loud on purpose: nobody should mistake a dev instance for a real one
+        "storage": "in-memory (DEV — data is lost on restart)" if ephemeral else "database",
     }
 
 
@@ -278,6 +309,211 @@ def lift_hold(
 # startup
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Registration Request Form intake
+# ---------------------------------------------------------------------------
+#
+# Two steps on purpose. Upload parses the workbook and shows what was read,
+# including anything the parser could not decide; accept is a separate,
+# deliberate action that creates the registrations. The parser flags ambiguous
+# licence grouping precisely because a wrong grouping means a wrong number of
+# licence applications, so nothing is created until a person has looked.
+
+
+@app.post("/api/intake/forms", status_code=201)
+async def upload_request_form(
+    file: UploadFile = File(...),
+    user: User = Depends(require_editor),
+    store: Store = Depends(get_store),
+    settings: Settings = Depends(get_settings),
+) -> Dict[str, Any]:
+    raw = await file.read()
+    try:
+        files.check_size(raw)
+    except files.FileTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+
+    try:
+        form = parse_registration_request(io.BytesIO(raw))
+    except FormParseError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    parsed = form.to_dict()
+
+    country = store.find_country_by_name(form.country) if form.country else None
+    warnings = list(parsed["warnings"])
+    if form.country and country is None:
+        # Not fatal at upload. It becomes fatal at accept, where a registration
+        # needs a real country, so the reviewer is told now rather than then.
+        warnings.append(
+            "Country '%s' does not match any country on file; it must be "
+            "resolved before this form can be accepted." % form.country
+        )
+
+    stored_path = files.generate_path(
+        settings.evidence_volume or "./_local_files", "request-forms", file.filename or "form.xlsx"
+    )
+    try:
+        get_file_store().write(stored_path, raw)
+    except files.FileStoreError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    record = audit.record_for_insert(
+        actor=user.actor,
+        entity="request_form",
+        entity_id="pending",
+        reason="Registration Request Form uploaded: %s" % (file.filename or "form.xlsx"),
+    )
+    row = store.create_request_form(
+        {
+            "filename": file.filename or "form.xlsx",
+            "volume_path": stored_path,
+            "country_name": form.country,
+            "country_code": country["code"] if country else None,
+            "distributor": form.distributor,
+            "ra_contact": form.ra_contact,
+            "request_date": form.request_date,
+            "licences_expected": form.licences_expected,
+            "signed_by": form.signed_by,
+            "signature_date": form.signature_date,
+            "sku_count": form.sku_count,
+            "source_sheet": form.source_sheet,
+            "parsed": json.dumps(parsed),
+            "warnings": json.dumps(warnings),
+        },
+        actor=user.actor,
+        records=[record],
+    )
+    return {"form": row, "parsed": parsed, "warnings": warnings}
+
+
+@app.get("/api/intake/forms")
+def list_request_forms(
+    state: Optional[str] = None,
+    user: User = Depends(current_user),
+    store: Store = Depends(get_store),
+) -> Dict[str, Any]:
+    rows = store.list_request_forms(state=state)
+    return {"count": len(rows), "forms": rows}
+
+
+@app.get("/api/intake/forms/{form_id}")
+def get_request_form(
+    form_id: int,
+    user: User = Depends(current_user),
+    store: Store = Depends(get_store),
+) -> Dict[str, Any]:
+    row = store.get_request_form(form_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No such request form.")
+    return row
+
+
+@app.post("/api/intake/forms/{form_id}/accept")
+def accept_request_form(
+    form_id: int,
+    payload: AcceptRequest,
+    user: User = Depends(require_editor),
+    store: Store = Depends(get_store),
+) -> Dict[str, Any]:
+    row = store.get_request_form(form_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No such request form.")
+    if row.get("state") != "parsed":
+        raise HTTPException(
+            status_code=409, detail="This form has already been %s." % row.get("state")
+        )
+
+    parsed = row["parsed"]
+    if isinstance(parsed, str):
+        parsed = json.loads(parsed)
+
+    country_code = row.get("country_code")
+    if not country_code:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This form's country (%s) is not on file, so registrations "
+                "cannot be raised from it." % (row.get("country_name") or "blank")
+            ),
+        )
+
+    groups = payload.groups or [
+        LicenceGroupInput(
+            note=g.get("note", ""),
+            skus=g.get("skus", []),
+            description=g.get("description", ""),
+        )
+        for g in parsed.get("groups", [])
+    ]
+    if not groups:
+        raise HTTPException(
+            status_code=422, detail="This form produced no licence applications."
+        )
+
+    reason = audit.check_reason(payload.reason)
+    request_id = audit.new_request_id()
+
+    registrations = []
+    for index, group in enumerate(groups, start=1):
+        registrations.append(
+            {
+                "country_code": country_code,
+                "sku": ", ".join(group.skus)[:400],
+                "product_description": _group_description(group),
+                "pending_type": "Initial Registration",
+                "local_distributors": row.get("distributor"),
+                "company_contact": row.get("ra_contact"),
+                "comments": group.note,
+                "_licence_group": index,
+            }
+        )
+
+    records = [
+        audit.record_for_insert(
+            actor=user.actor,
+            entity="request_form",
+            entity_id=str(form_id),
+            reason=reason,
+            request_id=request_id,
+        )
+    ]
+
+    try:
+        created = store.accept_request_form(
+            form_id, registrations, user.actor, reason, records
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {"created": len(created), "registrations": created}
+
+
+@app.post("/api/intake/forms/{form_id}/reject")
+def reject_request_form(
+    form_id: int,
+    payload: LiftRequest,
+    user: User = Depends(require_editor),
+    store: Store = Depends(get_store),
+) -> Dict[str, Any]:
+    reason = audit.check_reason(payload.reason)
+    record = audit.record_for_update_single(
+        actor=user.actor, entity="request_form", entity_id=form_id,
+        field="state", old_value="parsed", new_value="rejected", reason=reason,
+    )
+    try:
+        row = store.reject_request_form(form_id, user.actor, reason, [record])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"form": row}
+
+
+def _group_description(group: "LicenceGroupInput") -> str:
+    if group.description:
+        return group.description[:400]
+    return "Licence application covering %d SKU(s)" % len(group.skus)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _store
@@ -287,6 +523,14 @@ async def lifespan(_app: FastAPI):
         # Lazy pool: constructing this opens no connection, so an unreachable
         # Lakebase makes the app unhealthy rather than unable to start.
         _store = PostgresStore(_settings.database_url)
+    elif _settings.dev_mode:
+        from .store_memory import MemoryStore
+
+        _store = MemoryStore()
+        log.warning(
+            "DEV MODE: using an in-memory store. Everything is lost when this "
+            "process stops. Never run a deployed app this way."
+        )
     else:
         log.warning("DMA_DATABASE_URL is not set; the API will refuse data requests.")
     yield

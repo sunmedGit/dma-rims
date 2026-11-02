@@ -117,6 +117,8 @@ class RequestForm:
                     "note": g.note,
                     "skus": g.sku_numbers,
                     "classifications": g.classifications,
+                    # the first line's description stands for the family
+                    "description": g.skus[0].description if g.skus else "",
                 }
                 for g in self.groups
             ],

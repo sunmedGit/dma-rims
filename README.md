@@ -25,11 +25,40 @@ is not optional.
 
 | Piece | State |
 |---|---|
-| Registration Request Form reader | Built, 23 tests passing |
+| Registration Request Form reader | Built, verified against a real form |
 | Database schema | Written, parse-validated, **not yet run** |
-| HTTP API | Not started |
+| HTTP API | Registrations, holds, form intake — 96 tests |
 | Front end | Not started — ported from the reviewed prototype |
-| Databricks App packaging | Not started |
+| Databricks App packaging | `app.yaml` written, **not yet deployed** |
+
+## Running it locally, with no database
+
+```bash
+python -m pip install -r requirements-dev.txt
+DMA_DEV_MODE=1 \
+DMA_DEV_USER=you@myairlife.com \
+DMA_EDITOR_EMAILS=you@myairlife.com \
+DMA_EVIDENCE_VOLUME=./_local_files \
+python -m uvicorn app.main:app --port 8000
+```
+
+Dev mode uses an in-memory store and the local filesystem. **Everything is
+lost when the process stops**, `/api/health` says so, and it is only ever
+selected when `DMA_DEV_MODE` is on *and* no database is configured.
+
+Upload a completed form:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/intake/forms -F "file=@/path/to/form.xlsx"
+```
+
+## Form intake
+
+Upload and accept are deliberately separate. Upload reads the workbook and
+reports what it found, including anything it could not decide. Accept is a
+second, explicit action that creates one pending registration per licence
+application, and takes an optional corrected grouping — which is the answer to
+the parser's grouping warnings. A form can only be accepted once.
 
 Decisions settled so far:
 

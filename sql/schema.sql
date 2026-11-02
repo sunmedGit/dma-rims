@@ -81,7 +81,10 @@ CREATE TABLE IF NOT EXISTS customer_market (
 
 CREATE TABLE IF NOT EXISTS registration (
     id                  bigserial PRIMARY KEY,
-    registration_number text NOT NULL,             -- the certificate number
+    -- NULL until the authority issues one. A registration raised from a request
+    -- form has no certificate yet, and inventing a placeholder that looks like a
+    -- certificate number invites someone to treat it as one.
+    registration_number text,
     country_code        text NOT NULL REFERENCES country(code),
     mah_customer_id     bigint REFERENCES customer(id),
     sku                 text,
@@ -121,10 +124,14 @@ CREATE TABLE IF NOT EXISTS registration (
     created_at          timestamptz NOT NULL DEFAULT now(),
     created_by          text NOT NULL,
     updated_at          timestamptz NOT NULL DEFAULT now(),
-    updated_by          text NOT NULL,
-
-    UNIQUE (registration_number, country_code)
+    updated_by          text NOT NULL
 );
+
+-- Certificate numbers are unique per country once they exist. Pending records
+-- carry no number, and any number of them may be open for the same country.
+CREATE UNIQUE INDEX IF NOT EXISTS registration_number_country_uq
+    ON registration (registration_number, country_code)
+    WHERE registration_number IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS registration_country_idx ON registration (country_code);
 CREATE INDEX IF NOT EXISTS registration_expiry_idx  ON registration (expiry_date)

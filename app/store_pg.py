@@ -13,6 +13,7 @@ round-tripped through a real Lakebase instance.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from .audit import AuditRecord
@@ -219,6 +220,147 @@ class PostgresStore:
                     )
                 self._insert_audit(cur, records)
         return rows[0]
+
+    # -- request form intake ----------------------------------------------
+
+    def find_country_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Forms give a country name, not a code. Match case-insensitively."""
+        if not name:
+            return None
+        with self._get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT code, alpha2, name FROM dma.country "
+                "WHERE lower(name) = lower(%s) LIMIT 1",
+                [name.strip()],
+            )
+            rows = self._rows(cur)
+            return rows[0] if rows else None
+
+    _FORM_COLUMNS = """
+        id, filename, volume_path, uploaded_at, uploaded_by, country_name,
+        country_code, distributor, ra_contact, request_date, licences_expected,
+        signed_by, signature_date, sku_count, source_sheet, parsed, warnings,
+        state, reviewed_at, reviewed_by, review_note
+    """
+
+    def create_request_form(
+        self, fields: Mapping[str, Any], actor: str, records: Sequence[AuditRecord]
+    ) -> Dict[str, Any]:
+        columns = list(fields.keys())
+        placeholders = ", ".join(["%s"] * len(columns))
+        sql = (
+            "INSERT INTO dma.request_form (" + ", ".join(columns) + ", uploaded_by) "
+            "VALUES (" + placeholders + ", %s) RETURNING " + self._FORM_COLUMNS
+        )
+        params = [fields[c] for c in columns]
+        params.append(actor)
+
+        with self._get_pool().connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                row = self._rows(cur)[0]
+                # the row id only exists now, so stamp it onto the audit records
+                stamped = [
+                    replace(record, entity_id=str(row["id"])) for record in records
+                ]
+                self._insert_audit(cur, stamped)
+        return row
+
+    def get_request_form(self, form_id: int) -> Optional[Dict[str, Any]]:
+        with self._get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT " + self._FORM_COLUMNS + " FROM dma.request_form WHERE id = %s",
+                [form_id],
+            )
+            rows = self._rows(cur)
+            return rows[0] if rows else None
+
+    def list_request_forms(
+        self, state: Optional[str] = None, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        clause = " WHERE state = %s" if state else ""
+        params: List[Any] = [state] if state else []
+        params.append(limit)
+        with self._get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT " + self._FORM_COLUMNS + " FROM dma.request_form" + clause +
+                " ORDER BY uploaded_at DESC LIMIT %s",
+                params,
+            )
+            return self._rows(cur)
+
+    def accept_request_form(
+        self,
+        form_id: int,
+        registrations: Sequence[Mapping[str, Any]],
+        actor: str,
+        review_note: str,
+        records: Sequence[AuditRecord],
+    ) -> List[Dict[str, Any]]:
+        created: List[Dict[str, Any]] = []
+        with self._get_pool().connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT state FROM dma.request_form WHERE id = %s FOR UPDATE",
+                    [form_id],
+                )
+                rows = self._rows(cur)
+                if not rows:
+                    raise LookupError("No request form with id %s" % form_id)
+                if rows[0]["state"] != "parsed":
+                    # guards a double click, and a second accept that would
+                    # silently duplicate every registration on the form
+                    raise ValueError(
+                        "This form has already been %s." % rows[0]["state"]
+                    )
+
+                for payload in registrations:
+                    columns = list(payload.keys())
+                    sql = (
+                        "INSERT INTO dma.registration (" + ", ".join(columns) +
+                        ", source_form_id, created_by, updated_by) VALUES (" +
+                        ", ".join(["%s"] * len(columns)) + ", %s, %s, %s) RETURNING id"
+                    )
+                    params = [payload[c] for c in columns]
+                    params.extend([form_id, actor, actor])
+                    cur.execute(sql, params)
+                    new_id = cur.fetchone()[0]
+                    cur.execute(
+                        "INSERT INTO dma.request_form_registration "
+                        "(request_form_id, registration_id, licence_group) "
+                        "VALUES (%s, %s, %s)",
+                        [form_id, new_id, payload.get("_licence_group", 0)],
+                    )
+                    created.append({"id": new_id})
+
+                cur.execute(
+                    "UPDATE dma.request_form SET state = 'accepted', "
+                    "reviewed_at = now(), reviewed_by = %s, review_note = %s "
+                    "WHERE id = %s",
+                    [actor, review_note, form_id],
+                )
+                self._insert_audit(cur, records)
+
+        return [self.get_registration(c["id"]) for c in created]
+
+    def reject_request_form(
+        self, form_id: int, actor: str, review_note: str,
+        records: Sequence[AuditRecord],
+    ) -> Dict[str, Any]:
+        with self._get_pool().connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE dma.request_form SET state = 'rejected', "
+                    "reviewed_at = now(), reviewed_by = %s, review_note = %s "
+                    "WHERE id = %s AND state = 'parsed'",
+                    [actor, review_note, form_id],
+                )
+                if cur.rowcount == 0:
+                    raise ValueError(
+                        "Form %s does not exist or has already been reviewed." % form_id
+                    )
+                self._insert_audit(cur, records)
+        return self.get_request_form(form_id)
 
     # -- audit ------------------------------------------------------------
 

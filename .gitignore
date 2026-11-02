@@ -15,3 +15,5 @@ venv/
 *.xlsx
 *.xlsm
 !tests/fixtures/*.xlsx
+
+_local_files/
