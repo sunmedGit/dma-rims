@@ -1,0 +1,31 @@
+# Databricks Apps configuration.
+#
+# DRAFT — requires QA/RA review. Values below are placeholders.
+#
+# Databricks Apps assigns the listening port through DATABRICKS_APP_PORT, so
+# the command reads it rather than hard-coding one. Verify this against the
+# Databricks Apps documentation for your workspace's runtime before the first
+# deploy — the contract has changed between releases and I have not run it.
+
+command:
+  - "sh"
+  - "-c"
+  - "uvicorn app.main:app --host 0.0.0.0 --port ${DATABRICKS_APP_PORT:-8000}"
+
+env:
+  # Lakebase connection string. Hold it in a secret scope, never inline.
+  - name: "DMA_DATABASE_URL"
+    valueFrom: "dma-database-url"
+
+  # Unity Catalog Volume for approval evidence and uploaded request forms.
+  - name: "DMA_EVIDENCE_VOLUME"
+    value: "/Volumes/REPLACE_CATALOG/REPLACE_SCHEMA/evidence"
+
+  # Workspace group whose members may change records. Everyone else reads.
+  - name: "DMA_EDITOR_GROUP"
+    value: "REPLACE_EDITOR_GROUP"
+
+  # Optional fallback editor list, comma separated. Leave unset in production
+  # unless group lookup is unavailable; the group is the intended mechanism.
+  # - name: "DMA_EDITOR_EMAILS"
+  #   value: ""
