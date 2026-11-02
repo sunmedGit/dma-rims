@@ -52,6 +52,33 @@ Upload a completed form:
 curl -X POST http://127.0.0.1:8000/api/intake/forms -F "file=@/path/to/form.xlsx"
 ```
 
+## Nightly export
+
+`sql/views_integration.sql` is the contract for a scheduled job. Treat the
+column lists as an interface: adding columns is safe, renaming or removing
+them breaks the consumer.
+
+| View | What it is for |
+|---|---|
+| `vw_gtin_country_eligibility` | One row per GTIN × country: may it ship, and if not why |
+| `vw_gtin_country_blocked` | Just the blocked rows — the export payload |
+| `vw_gtin_country_expiring` | Shippable today, expiring within 90 days |
+
+Three things to settle before building the job:
+
+1. **The answer depends on when you read it.** It is computed from
+   `current_date`, so two runs can differ with nothing having changed. Stamp
+   the run time onto whatever is exported.
+2. **A nightly cadence leaves a gap.** A hold applied at 09:00 does not reach
+   the downstream systems until that night. If same-day holds must stop
+   shipment, this needs a trigger on hold insert, not a nightly read.
+3. **Decide how the consumer behaves on a stale or missing file.** The export
+   is a *block* list rather than an allow list for this reason: a failed or
+   empty run suppresses nothing instead of releasing everything.
+
+The job should read through its own principal with `SELECT` on these views and
+nothing else, so an export can never write.
+
 ## Form intake
 
 Upload and accept are deliberately separate. Upload reads the workbook and
