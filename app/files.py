@@ -47,12 +47,15 @@ def safe_name(filename: str, fallback: str = "upload.bin") -> str:
     return base[:120]
 
 
-def generate_path(root: str, category: str, filename: str) -> str:
-    """A unique, date-partitioned path under the configured root."""
+def generate_path(category: str, filename: str) -> str:
+    """A unique, date-partitioned path RELATIVE to the store's root.
+
+    The root belongs to the store, not to the path. Having it in both is how
+    uploads ended up under _local_files/_local_files.
+    """
     stamp = datetime.now(timezone.utc)
     return "/".join(
         [
-            root.rstrip("/"),
             category,
             stamp.strftime("%Y/%m"),
             "%s-%s" % (uuid.uuid4().hex[:12], safe_name(filename)),
@@ -86,7 +89,7 @@ class LocalFileStore:
         target = self._resolve(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-        return path
+        return str(target)
 
     def read(self, path: str) -> bytes:
         return self._resolve(path).read_bytes()
@@ -98,7 +101,8 @@ class VolumeFileStore:
     NOT yet exercised against a real workspace.
     """
 
-    def __init__(self, workspace_client=None):
+    def __init__(self, root: str, workspace_client=None):
+        self._root = root.rstrip("/")
         self._client = workspace_client
 
     def _get_client(self):
@@ -108,18 +112,22 @@ class VolumeFileStore:
             self._client = WorkspaceClient()
         return self._client
 
+    def _full(self, path: str) -> str:
+        return path if path.startswith(self._root) else self._root + "/" + path.lstrip("/")
+
     def write(self, path: str, data: bytes) -> str:
         import io
 
+        target = self._full(path)
         try:
-            self._get_client().files.upload(path, io.BytesIO(data), overwrite=False)
+            self._get_client().files.upload(target, io.BytesIO(data), overwrite=False)
         except Exception as exc:
             raise FileStoreError("Could not write to the volume: %s" % exc) from exc
-        return path
+        return target
 
     def read(self, path: str) -> bytes:
         try:
-            response = self._get_client().files.download(path)
+            response = self._get_client().files.download(self._full(path))
             return response.contents.read()
         except Exception as exc:
             raise FileStoreError("Could not read from the volume: %s" % exc) from exc
@@ -137,7 +145,7 @@ def check_size(data: bytes, limit: int = MAX_UPLOAD_BYTES) -> bytes:
 def build_file_store(evidence_volume: str, local_root: Optional[Path] = None) -> FileStore:
     """A Volume store when one is configured, otherwise local disk."""
     if evidence_volume.startswith("/Volumes/"):
-        return VolumeFileStore()
+        return VolumeFileStore(evidence_volume)
     root = local_root or Path(evidence_volume or "./_local_files")
     log.warning("No Unity Catalog Volume configured; storing uploads under %s", root)
     return LocalFileStore(root)

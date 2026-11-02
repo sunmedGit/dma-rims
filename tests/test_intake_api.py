@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -149,7 +150,20 @@ def test_upload_creates_no_registrations(client, store):
 def test_upload_stores_the_file_and_records_its_path(client, tmp_path):
     path = upload(client).json()["form"]["volume_path"]
     assert "request-forms" in path
-    assert (tmp_path / "vol" / path.lstrip("/")).exists()
+    # the recorded path must be where the file actually is
+    assert Path(path).exists()
+    assert Path(path).read_bytes()[:2] == b"PK"
+
+
+def test_the_storage_root_is_not_applied_twice(client, tmp_path):
+    """Uploads once landed under vol/vol/... because the root was in the path
+    and applied again by the store."""
+    path = upload(client).json()["form"]["volume_path"]
+    parts = Path(path).parts
+    assert parts.count("vol") == 1, "storage root appears %d times in %s" % (
+        parts.count("vol"), path
+    )
+    assert not (tmp_path / "vol" / "vol").exists()
 
 
 def test_a_file_that_is_not_a_workbook_is_refused(client, store):

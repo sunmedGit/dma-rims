@@ -362,11 +362,9 @@ async def upload_request_form(
             "resolved before this form can be accepted." % form.country
         )
 
-    stored_path = files.generate_path(
-        settings.evidence_volume or "./_local_files", "request-forms", file.filename or "form.xlsx"
-    )
+    relative = files.generate_path("request-forms", file.filename or "form.xlsx")
     try:
-        get_file_store().write(stored_path, raw)
+        stored_path = get_file_store().write(relative, raw)
     except files.FileStoreError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
