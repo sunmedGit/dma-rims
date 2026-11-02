@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Local environment and secrets — never commit
+.env
+.env.*
+
+# Completed Registration Request Forms carry distributor contact details and
+# signatory names. Keep real forms out of the repository; tests build their
+# own fixtures in code.
+*.xlsx
+*.xlsm
+!tests/fixtures/*.xlsx

@@ -1,0 +1,15 @@
+# Runtime dependencies for the Databricks App.
+# Target runtime: Python 3.11 (matching the other AirLife app servers).
+# Bounds are deliberately loose until the first clean resolve on the Databricks
+# runtime; freeze with `pip freeze` once that is done and commit the pins.
+
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+python-multipart>=0.0.9
+pydantic>=2.7,<3.0
+
+# Registration Request Form (.xlsx) reader
+openpyxl>=3.1,<4.0
+
+# Lakebase (Postgres) client
+psycopg[binary]>=3.1,<4.0
