@@ -13,3 +13,8 @@ openpyxl>=3.1,<4.0
 
 # Lakebase (Postgres) client
 psycopg[binary,pool]>=3.1,<4.0
+
+# Unity Catalog Volume writes and workspace group lookup. Both imports are
+# lazy, so a missing SDK does not crash on start — it downgrades every user to
+# Viewer and fails evidence uploads at the point of use. Keep it declared.
+databricks-sdk>=0.30,<1.0
