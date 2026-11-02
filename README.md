@@ -27,8 +27,8 @@ is not optional.
 |---|---|
 | Registration Request Form reader | Built, verified against a real form |
 | Database schema | Written, parse-validated, **not yet run** |
-| HTTP API | Registrations, holds, form intake — 96 tests |
-| Front end | Not started — ported from the reviewed prototype |
+| HTTP API | Registrations, holds, form intake — 115 tests |
+| Front end | Ported: home, registrations, GTIN lookup, holds, intake |
 | Databricks App packaging | `app.yaml` written, **not yet deployed** |
 
 ## Running it locally, with no database
@@ -86,6 +86,11 @@ reports what it found, including anything it could not decide. Accept is a
 second, explicit action that creates one pending registration per licence
 application, and takes an optional corrected grouping — which is the answer to
 the parser's grouping warnings. A form can only be accepted once.
+
+Not ported yet, because nothing backs them: the world map dashboard,
+customer / MAH profiles, approval evidence, EUDAMED, entities and accounts,
+the data dictionary and review timelines. The home page lists them rather than
+showing sample data that looks real.
 
 Decisions settled so far:
 

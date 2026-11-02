@@ -33,6 +33,13 @@ _REGISTRATION_COLUMNS = """
     status, alert_opens_on, in_alert_window
 """
 
+# Prefixed form, for the queries that join country. A country code is not a
+# thing anyone recognises on a screen.
+_REGISTRATION_SELECT = (
+    ", ".join("rc." + c.strip() for c in _REGISTRATION_COLUMNS.split(",")) +
+    ", c.name AS country_name, c.alpha2 AS country_alpha2"
+)
+
 
 class PostgresStore:
     def __init__(self, database_url: str, pool=None):
@@ -69,29 +76,30 @@ class PostgresStore:
         params: List[Any] = []
 
         if not include_archived:
-            where.append("archived = false")
+            where.append("rc.archived = false")
         if country_code:
-            where.append("country_code = %s")
+            where.append("rc.country_code = %s")
             params.append(country_code)
         if product_class_code:
-            where.append("product_class_code = %s")
+            where.append("rc.product_class_code = %s")
             params.append(product_class_code)
         if status:
-            where.append("status = %s")
+            where.append("rc.status = %s")
             params.append(status)
         if search:
             where.append(
-                "(registration_number ILIKE %s OR sku ILIKE %s "
-                " OR product_description ILIKE %s)"
+                "(rc.registration_number ILIKE %s OR rc.sku ILIKE %s "
+                " OR rc.product_description ILIKE %s)"
             )
             like = "%" + search + "%"
             params.extend([like, like, like])
 
         clause = (" WHERE " + " AND ".join(where)) if where else ""
         sql = (
-            "SELECT " + _REGISTRATION_COLUMNS +
-            " FROM dma.registration_current" + clause +
-            " ORDER BY expiry_date NULLS LAST, registration_number LIMIT %s"
+            "SELECT " + _REGISTRATION_SELECT +
+            " FROM dma.registration_current rc"
+            " JOIN dma.country c ON c.code = rc.country_code" + clause +
+            " ORDER BY rc.expiry_date NULLS LAST, rc.registration_number LIMIT %s"
         )
         params.append(limit)
 
@@ -101,8 +109,9 @@ class PostgresStore:
 
     def get_registration(self, registration_id: int) -> Optional[Dict[str, Any]]:
         sql = (
-            "SELECT " + _REGISTRATION_COLUMNS +
-            " FROM dma.registration_current WHERE id = %s"
+            "SELECT " + _REGISTRATION_SELECT +
+            " FROM dma.registration_current rc"
+            " JOIN dma.country c ON c.code = rc.country_code WHERE rc.id = %s"
         )
         with self._get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(sql, [registration_id])
@@ -220,6 +229,20 @@ class PostgresStore:
                     )
                 self._insert_audit(cur, records)
         return rows[0]
+
+    def list_holds(
+        self, active_only: bool = True, limit: int = 500
+    ) -> List[Dict[str, Any]]:
+        clause = " WHERE lifted_at IS NULL" if active_only else ""
+        sql = (
+            "SELECT id, gtin, scope, reason, source_ref, applied_at, applied_by, "
+            "       lifted_at, lifted_by, lift_reason "
+            "FROM dma.gtin_hold" + clause +
+            " ORDER BY applied_at DESC, id DESC LIMIT %s"
+        )
+        with self._get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, [limit])
+            return self._rows(cur)
 
     # -- request form intake ----------------------------------------------
 

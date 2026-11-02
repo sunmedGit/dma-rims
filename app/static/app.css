@@ -1,0 +1,60 @@
+/* Additions to the prototype's stylesheet for things the real app needs:
+   a reason prompt on every write, toasts, and warning panels on form intake. */
+
+.toast-wrap{position:fixed; right:18px; bottom:18px; z-index:80; display:flex;
+  flex-direction:column; gap:8px; max-width:380px;}
+.toast{background:var(--card); border:1px solid var(--line); border-left-width:4px;
+  border-radius:8px; padding:11px 14px; box-shadow:var(--shadow); font-size:13px;}
+.toast.ok{border-left-color:var(--good-fg);}
+.toast.bad{border-left-color:var(--bad-fg);}
+.toast.info{border-left-color:var(--brand);}
+.toast b{display:block; margin-bottom:2px;}
+
+.modal-scrim{position:fixed; inset:0; background:rgba(12,18,28,.45); z-index:70;
+  display:flex; align-items:flex-start; justify-content:center; padding:60px 16px; overflow-y:auto;}
+.modal{background:var(--card); border:1px solid var(--line); border-radius:12px;
+  width:min(640px,100%); box-shadow:0 18px 50px rgba(12,18,28,.3);}
+.modal-head{padding:16px 20px; border-bottom:1px solid var(--line-soft); background:var(--brand-soft);}
+.modal-head h3{font-size:16px;}
+.modal-head .sub{font-size:12.5px; color:var(--ink-soft); margin-top:3px;}
+.modal-body{padding:18px 20px; display:flex; flex-direction:column; gap:14px;}
+.modal-foot{padding:14px 20px; border-top:1px solid var(--line-soft);
+  display:flex; gap:10px; justify-content:flex-end;}
+.modal textarea, .modal input[type="text"], .modal input[type="file"]{
+  border:1px solid var(--line); border-radius:7px; padding:9px 11px;
+  background:var(--card); color:var(--ink); width:100%; font-family:inherit;}
+.modal textarea{min-height:76px; resize:vertical;}
+
+/* Every change needs a reason; make that look deliberate rather than incidental. */
+.reason-note{font-size:12px; color:var(--ink-soft); margin-top:-6px;}
+
+.warn-list{display:flex; flex-direction:column; gap:8px;}
+.warn-item{display:flex; gap:10px; align-items:flex-start; padding:10px 12px;
+  border-radius:8px; background:var(--warn-bg); color:var(--warn-fg); font-size:12.5px;}
+.warn-item .ic{flex-shrink:0; font-weight:700;}
+
+.group-editor{display:flex; flex-direction:column; gap:10px;}
+.group-row{border:1px solid var(--line); border-radius:9px; padding:12px;
+  display:flex; flex-direction:column; gap:7px; background:var(--card);}
+.group-row .hd{display:flex; align-items:center; gap:10px;}
+.group-row .hd .n{font-weight:700; color:var(--brand);}
+.group-row .hd .rm{margin-left:auto; background:none; border:none; cursor:pointer;
+  color:var(--bad-fg); font-weight:600; font-size:12px;}
+.group-row textarea{min-height:48px;}
+.group-row .skus{font-family:"IBM Plex Mono",monospace; font-size:11.5px;}
+
+.kv-pairs{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px 20px;}
+
+.hist-row{display:grid; grid-template-columns:150px 1fr; gap:10px; padding:9px 0;
+  border-bottom:1px solid var(--line-soft); font-size:12.5px;}
+.hist-row:last-child{border-bottom:none;}
+.hist-row .when{color:var(--ink-soft); font-family:"IBM Plex Mono",monospace; font-size:11.5px;}
+.hist-row .what b{color:var(--brand);}
+.hist-row .why{color:var(--ink-soft); font-style:italic; margin-top:2px;}
+
+.readonly-note{font-size:12.5px;}
+
+.drop{border:2px dashed var(--line); border-radius:10px; padding:28px; text-align:center;
+  color:var(--ink-soft); cursor:pointer;}
+.drop:hover{border-color:var(--brand); color:var(--brand);}
+.drop.on{border-color:var(--brand); background:var(--brand-soft);}

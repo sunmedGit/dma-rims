@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AirLife Regulatory Affairs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="mark">&#9636;</span>AirLife<span class="sep">|</span>Regulatory Affairs</div>
+    <span class="env-badge" id="envBadge">loading</span>
+    <div class="topbar-spacer"></div>
+    <div class="role-box">
+      <label>Signed in as</label>
+      <span id="whoami" class="mono" style="font-size:12.5px">&hellip;</span>
+      <span class="pill neutral" id="accessPill">&hellip;</span>
+    </div>
+  </div>
+
+  <nav class="tabbar" id="tabbar"></nav>
+
+  <main id="main"><div class="card"><div class="empty">Loading&hellip;</div></div></main>
+
+  <div id="overlay"></div>
+  <div id="toast" class="toast-wrap"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

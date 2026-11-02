@@ -113,6 +113,10 @@ class Store(Protocol):
     ) -> Dict[str, Any]:
         ...
 
+    def list_holds(self, active_only: bool = True, limit: int = 500
+                   ) -> List[Dict[str, Any]]:
+        ...
+
     # --- request form intake --------------------------------------------
     def find_country_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         ...

@@ -120,6 +120,12 @@ class MemoryStore:
         self.write_audit(records)
         return hold
 
+    def list_holds(self, active_only=True, limit=500):
+        rows = list(self.holds.values())
+        if active_only:
+            rows = [h for h in rows if h["lifted_at"] is None]
+        return sorted(rows, key=lambda h: h["id"], reverse=True)[:limit]
+
     # -- request forms ----------------------------------------------------
 
     def find_country_by_name(self, name: str) -> Optional[Dict[str, Any]]:
@@ -153,9 +159,15 @@ class MemoryStore:
         for payload in registrations:
             reg_id = self._take("registration")
             row = {k: v for k, v in payload.items() if not k.startswith("_")}
+            name = next(
+                (v["name"] for v in self.countries.values()
+                 if v["code"] == payload.get("country_code")),
+                payload.get("country_code"),
+            )
             row.update(
                 {
                     "id": reg_id,
+                    "country_name": name,
                     "registration_number": None,
                     "source_form_id": form_id,
                     "created_by": actor,

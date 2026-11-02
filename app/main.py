@@ -17,6 +17,8 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import audit, files
@@ -261,6 +263,16 @@ def list_gtins(
 ) -> Dict[str, Any]:
     rows = store.list_gtins(gtin=gtin, country_code=country)
     return {"count": len(rows), "gtins": rows}
+
+
+@app.get("/api/holds")
+def list_holds(
+    active_only: bool = True,
+    user: User = Depends(current_user),
+    store: Store = Depends(get_store),
+) -> Dict[str, Any]:
+    rows = store.list_holds(active_only=active_only)
+    return {"count": len(rows), "holds": rows}
 
 
 @app.post("/api/holds", status_code=201)
@@ -512,6 +524,31 @@ def _group_description(group: "LicenceGroupInput") -> str:
     if group.description:
         return group.description[:400]
     return "Licence application covering %d SKU(s)" % len(group.skus)
+
+
+# ---------------------------------------------------------------------------
+# the single-page app
+# ---------------------------------------------------------------------------
+#
+# Mounted after every /api route is declared. The catch-all below returns the
+# shell for any non-API path so the hash router owns navigation, but it must
+# never swallow an unknown /api path — that should 404 as itself rather than
+# returning HTML a fetch() will fail to parse.
+
+if _settings.static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_settings.static_dir)), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    return FileResponse(str(_settings.static_dir / "index.html"))
+
+
+@app.get("/{path:path}", include_in_schema=False)
+def spa(path: str) -> FileResponse:
+    if path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="No such endpoint.")
+    return FileResponse(str(_settings.static_dir / "index.html"))
 
 
 @asynccontextmanager
