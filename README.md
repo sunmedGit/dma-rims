@@ -26,10 +26,17 @@ is not optional.
 | Piece | State |
 |---|---|
 | Registration Request Form reader | Built, 23 tests passing |
-| Database schema | Not started |
+| Database schema | Written, parse-validated, **not yet run** |
 | HTTP API | Not started |
 | Front end | Not started — ported from the reviewed prototype |
 | Databricks App packaging | Not started |
+
+Decisions settled so far:
+
+- **No approval workflow.** Changes apply immediately. Each one carries a
+  required reason, captured in `audit_log`.
+- **Two access levels**, Editor and Viewer, mapped from Databricks workspace
+  groups. Enforced in the API, not the database — see `sql/grants.sql`.
 
 ## Layout
 
